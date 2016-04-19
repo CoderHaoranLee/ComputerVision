@@ -1,4 +1,4 @@
-function [ keypoint_location,keypoint_orie,keypoint_grad,pyramid_L,pyramid_D,extrema_pos ] = detect_keypoint_orie_grad( img )
+function [ keypoint_location,keypoint_orie,keypoint_grad_amp,pyramid_L,pyramid_D,extrema_pos ] = detect_keypoint_orie_grad( img )
 %               img: 输入灰度图像
 % keypoint_location: 输出关键点位置，是matlab坐标系下位置，可直接用在图像上绘制
 %     keypoint_orie: 输出关键点的主方向
@@ -34,7 +34,7 @@ for o = 1:octave_num
     octave = zeros(m/2^(o-1),n/2^(o-1),S+3);
     if (o==1)
         for s = 1:S+3
-            sigma = sigma_init*sqrt(2)^(o-1 + (s-1)/S);
+            sigma = sigma_init*2^(o-1 + (s-1)/S);
             gauss_size = floor(sigma*6+1);
             gauss_func = fspecial('gaussian',[gauss_size,gauss_size],sigma);
             octave(:,:,s) = conv2(img_linear,gauss_func,'same');
@@ -42,7 +42,7 @@ for o = 1:octave_num
         pyramid_L{o} = octave;
     else
         for s = 1:S+3
-            sigma = sigma_init*sqrt(2)^(o-1 + (s-1)/S);
+            sigma = sigma_init*2^(o-1 + (s-1)/S);
             gauss_size = floor(sigma*6+1);
             gauss_func = fspecial('gaussian',[gauss_size,gauss_size],sigma);
             img_temp = pyramid_L{o-1}(:,:,S+1);
@@ -100,7 +100,7 @@ end
 % =========================================================================
 % 绘制最初检测的极值点
 extrema_pos_org = [extrema_pos(:,end-1).*(2.^(extrema_pos(:,1)-2)),extrema_pos(:,end).*(2.^(extrema_pos(:,1)-2))];
-figure(2)
+figure
 imshow(img)
 hold on
 plot(extrema_pos_org(:,2),extrema_pos_org(:,1),'r+')
@@ -154,7 +154,7 @@ extrema_pos = extrema_pos(extrema_flag==1,:);
 % =========================================================================
 % 绘制去掉对比度比较低以及偏移比较大的点
 extrema_pos_org = [extrema_pos(:,end-1).*(2.^(extrema_pos(:,1)-2)),extrema_pos(:,end).*(2.^(extrema_pos(:,1)-2))];
-figure(3)
+figure
 imshow(img)
 hold on
 plot(extrema_pos_org(:,2),extrema_pos_org(:,1),'r+')
@@ -185,7 +185,7 @@ extrema_pos = extrema_pos(extrema_flag==1,:);
 % =========================================================================
 % 绘制去掉边缘的点
 extrema_pos_org = [extrema_pos(:,end-1).*(2.^(extrema_pos(:,1)-2)),extrema_pos(:,end).*(2.^(extrema_pos(:,1)-2))];
-figure(4)
+figure
 imshow(img)
 hold on
 plot(extrema_pos_org(:,2),extrema_pos_org(:,1),'r+')
@@ -193,10 +193,10 @@ plot(extrema_pos_org(:,2),extrema_pos_org(:,1),'r+')
 %% 计算关键点主方向
 edge_flag = ones(size(extrema_pos,1),1);
 key_point_hist = zeros(size(extrema_pos,1),36);
-key_point_descrip = zeros(size(extrema_pos,1),2);
+key_point_grad = zeros(size(extrema_pos,1),2);
 keypoint_orie = [];
-keypoint_grad = [];
-bin_with = 360/35;
+keypoint_grad_amp = [];
+bin_width = 360/35;
 for i = 1:size(extrema_pos,1)
     o = extrema_pos(i,1);
     s = extrema_pos(i,2);
@@ -214,27 +214,27 @@ for i = 1:size(extrema_pos,1)
             for y_i = (y-radius):(y+radius)
                 % 计算该点梯度和方向
                 m_i = sqrt((L_temp(x_i+1,y_i) - L_temp(x_i-1,y_i))^2+(L_temp(x_i,y_i+1) - L_temp(x_i,y_i-1))^2);
-                theta_sin = (L_temp(x_i,y_i+1)-L_temp(x_i,y_i-1))/m_i;
-                theta_cos = (L_temp(x_i+1,y_i)-L_temp(x_i-1,y_i))/m_i;
-                theta = (180/pi)*atan((L_temp(x_i,y_i+1)-L_temp(x_i,y_i-1))/(L_temp(x_i+1,y_i)-L_temp(x_i-1,y_i)));
+                theta_cos = (L_temp(x_i,y_i+1)-L_temp(x_i,y_i-1))/m_i;
+                theta_sin = (L_temp(x_i+1,y_i)-L_temp(x_i-1,y_i))/m_i;
+                theta = (180/pi)*atan(theta_sin/theta_cos);
                 % 把角度从-180-180映射到0-360
-                if (theta_sin>0&&theta_cos<0) % 第二象限
+                if (theta_cos>0&&theta_sin<0) % 第二象限
                     theta = theta + 180;
-                elseif (theta_sin<0&&theta_cos<0) % 第三象限
+                elseif (theta_cos<0&&theta_sin<0) % 第三象限
                     theta = theta + 180;
-                elseif (theta_sin<0&&theta_cos>0) % 第四象限
+                elseif (theta_cos<0&&theta_sin>0) % 第四象限
                     theta = theta + 360;
                 end
-                if(theta_sin==1)
+                if(theta_cos==1)
                     theta = 90;
-                elseif(theta_sin == -1)
+                elseif(theta_cos == -1)
                     theta = 270;
                 end
-                bin_i = floor(theta/bin_with);
-                delta_theta = theta - bin_i*bin_with;
+                bin_i = floor(theta/bin_width);
+                delta_theta = theta - bin_i*bin_width;
                 bin_i = bin_i + 1;
-                delta_add = L_temp(x_i,y_i)*(1/(sqrt(2*pi)*sigma))*exp(((x_i-x)^2+(y_i-y)^2)/(2*sigma^2));
-                if(delta_theta<bin_with/2)
+                delta_add = m_i*(1/(sqrt(2*pi)*sigma))*exp(-((x_i-x)^2+(y_i-y)^2)/(2*sigma^2));
+                if(delta_theta<bin_width/2)
                     key_point_hist(i,bin_i) = key_point_hist(i,bin_i) + delta_add;
                 else
                     bin_i = bin_i + 1;
@@ -243,25 +243,25 @@ for i = 1:size(extrema_pos,1)
             end
         end
         [~,id] = max(key_point_hist(i,:));
-        theta = bin_with*(id-1);
+        theta = bin_width*(id-1);
         keypoint_orie = [keypoint_orie;theta];
-        m = sqrt((L_temp(x+1,y_i) - L_temp(x-1,y))^2+(L_temp(x,y+1) - L_temp(x,y-1))^2);
-        keypoint_grad = [keypoint_grad;m];
-        key_point_descrip(i,1) = m*sin(theta);
-        key_point_descrip(i,2) = m*cos(theta);
+        m = sqrt((L_temp(x+1,y) - L_temp(x-1,y))^2+(L_temp(x,y+1) - L_temp(x,y-1))^2);
+        keypoint_grad_amp = [keypoint_grad_amp;m];
+        key_point_grad(i,1) = m*sin(theta);
+        key_point_grad(i,2) = m*cos(theta);
     end
 end
-key_point_descrip = key_point_descrip(edge_flag==1,:);
+key_point_grad = key_point_grad(edge_flag==1,:);
 key_point_hist = key_point_hist(edge_flag==1,:);
 % =========================================================================
 % 绘制去掉图像边沿处的点之后的特征点以及该点处的梯度矢量
 extrema_pos_org = extrema_pos_org(edge_flag==1,:);
-figure(5)
+figure
 imshow(img)
 hold on
 plot(extrema_pos_org(:,2),extrema_pos_org(:,1),'r+')
 hold on
-quiver(extrema_pos_org(:,2),extrema_pos_org(:,1),key_point_descrip(:,1),key_point_descrip(:,2),2,'color', 'y')
+quiver(extrema_pos_org(:,2),extrema_pos_org(:,1),key_point_grad(:,1),key_point_grad(:,2),2,'color', 'y')
 % =========================================================================
 keypoint_location = [extrema_pos_org(:,2),extrema_pos_org(:,1)];
 extrema_pos = extrema_pos(edge_flag==1,:);
